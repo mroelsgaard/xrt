@@ -124,7 +124,7 @@ __allSectioned__ = collections.OrderedDict([
     ])
 
 import os
-# import copy
+import copy
 # import gc
 import numpy as np
 from scipy import interpolate
@@ -529,17 +529,39 @@ class BentLaueCylinder(OE):
 
         """
         kwargs = self.__pop_kwargs(**kwargs)
-        self.crossSectionInt = 0 if self.crossSection.startswith('circ') else 1
         OE.__init__(self, *args, **kwargs)
-        if isinstance(self.R, (tuple, list)):
-            self.R = self.get_Rmer_from_Coddington(self.R[0], self.R[1])
+
+    @property
+    def crossSection(self):
+        return self._crossSection
+
+    @crossSection.setter
+    def crossSection(self, crossSection):
+        if not (crossSection.startswith('circ') or
+                crossSection.startswith('parab')):
+            raise ValueError('unknown crossSection!')
+        self._crossSection = crossSection
+        self.crossSectionInt = 0 if self.crossSection.startswith('circ') else 1
+
+    @property
+    def R(self):
+        return self._R
+
+    @R.setter
+    def R(self, R):
+        if isinstance(R, (list, tuple)):
+            self._RPQ = R
+            self._R = self.get_Rmer_from_Coddington(R[0], R[1])
+        elif R is None:
+            self._RPQ = None
+            self._R = 1e100
+        else:
+            self._RPQ = None
+            self._R = R
 
     def __pop_kwargs(self, **kwargs):
         self.R = kwargs.pop('R', 1.0e4)
         self.crossSection = kwargs.pop('crossSection', 'parabolic')
-        if not (self.crossSection.startswith('circ') or
-                self.crossSection.startswith('parab')):
-            raise ValueError('unknown crossSection!')
         return kwargs
 
     def local_z(self, x, y):
@@ -691,8 +713,22 @@ class BentFlatMirror(OE):
         """
         kwargs = self.__pop_kwargs(**kwargs)
         OE.__init__(self, *args, **kwargs)
-        if isinstance(self.R, (tuple, list)):
-            self.R = self.get_Rmer_from_Coddington(self.R[0], self.R[1])
+
+    @property
+    def R(self):
+        return self._R
+
+    @R.setter
+    def R(self, R):
+        if isinstance(R, (list, tuple)):
+            self._RPQ = R
+            self._R = self.get_Rmer_from_Coddington(R[0], R[1])
+        elif R is None:
+            self._RPQ = None
+            self._R = 1e100
+        else:
+            self._RPQ = None
+            self._R = R
 
     def __pop_kwargs(self, **kwargs):
         self.R = kwargs.pop('R', 5.0e6)
@@ -764,12 +800,40 @@ class ToroidMirror(OE):
         """
         kwargs = self.__pop_kwargs(**kwargs)
         OE.__init__(self, *args, **kwargs)
-        if isinstance(self.R, (tuple, list)):
-            self.R = self.get_Rmer_from_Coddington(self.R[0], self.R[1])
-        if isinstance(self.r, (tuple, list)):
-            self.r = self.get_rsag_from_Coddington(self.r[0], self.r[1])
-        if self.r == 0:
+
+    @property
+    def R(self):
+        return self._R
+
+    @R.setter
+    def R(self, R):
+        if isinstance(R, (list, tuple)):
+            self._RPQ = R
+            self._R = self.get_Rmer_from_Coddington(R[0], R[1])
+        elif R is None:
+            self._RPQ = None
+            self._R = 1e100
+        else:
+            self._RPQ = None
+            self._R = R
+
+    @property
+    def r(self):
+        return self._r
+
+    @r.setter
+    def r(self, r):
+        if r == 0:
             raise ValueError("r must be non-zero")
+        if isinstance(r, (list, tuple)):
+            self._rPQ = r
+            self._r = self.get_rsag_from_Coddington(r[0], r[1])
+        elif r is None:
+            self._rPQ = None
+            self._r = 1e100
+        else:
+            self._rPQ = None
+            self._r = r
 
     def __pop_kwargs(self, **kwargs):
         self.R = kwargs.pop('R', 5.0e6)
@@ -967,145 +1031,145 @@ class DualVFM(MirrorOnTripodWithTwoXStages):
         self.set_x_stages()
 
 
-class EllipticalMirror(OE):
-    """Implements cylindrical elliptical mirror.
-    Deprecated, use EllipticalMirrorParam instead."""
-
-    cl_plist = ("p", "alpha", "ae", "be", "ce")
-    cl_local_z = """
-    float local_z(float8 cl_plist, int i, float x, float y)
-    {
-      float delta_y = cl_plist.s0 * cos(cl_plist.s1) - cl_plist.s4;
-      float delta_z = -cl_plist.s0 * sin(cl_plist.s1);
-      return -cl_plist.s3 *
-          sqrt(1 - (pown(((y+delta_y)/cl_plist.s2),2))) - delta_z;
-    }"""
-    cl_local_n = """
-    float3 local_n(float8 cl_plist, int i, float x, float y)
-    {
-      float3 res;
-      float delta_y = cl_plist.s0 * cos(cl_plist.s1) - cl_plist.s4;
-      res.s0 = 0;
-      res.s1 = -cl_plist.s3 * (y+delta_y) /
-          sqrt(1 - (pown((y+delta_y)/cl_plist.s2,2)) / pown(cl_plist.s2,2));
-      res.s2 = 1.;
-      return normalize(res);
-    }"""
-
-    def __init__(self, *args, **kwargs):
-        """
-        *p* and *q*: float
-            *p* and *q* arms of the mirror, both are positive.
-
-
-        """
-        print("EllipticalMirror is deprecated, "
-              "use EllipticalMirrorParam instead.")
-        kwargs = self.__pop_kwargs(**kwargs)
-        OE.__init__(self, *args, **kwargs)
-        self.get_orientation()
-
-    def __pop_kwargs(self, **kwargs):
-        self.p = kwargs.pop('p')
-        self.q = kwargs.pop('q')
-        self.isCylindrical = kwargs.pop('isCylindrical', True)  # always!
-        self.pcorrected = 0
-        return kwargs
-
-    def get_orientation(self):
-        if self.pcorrected and self.pitch0 != self.pitch:
-            self.pcorrected = 0
-        if not self.pcorrected:
-            self.gamma = np.pi - 2*self.pitch
-            self.ce = 0.5 * np.sqrt(
-                self.p**2 + self.q**2 - 2*self.p*self.q * np.cos(self.gamma))
-            self.ae = 0.5 * (self.p+self.q)
-            self.be = np.sqrt(self.ae*self.ae - self.ce*self.ce)
-            self.alpha = np.arccos((4 * self.ce**2 - self.q**2 + self.p**2) /
-                                   (4*self.ce*self.p))
-            self.delta = 0.5*np.pi - self.alpha - 0.5*self.gamma
-            self.pitch = self.pitch - self.delta
-            self.pitch0 = self.pitch
-            self.pcorrected = 1
-
-    def local_z(self, x, y):
-        delta_y = self.p * np.cos(self.alpha) - self.ce
-        delta_z = -self.p * np.sin(self.alpha)
-        return -self.be * np.sqrt(1 - ((y+delta_y)/self.ae)**2) - delta_z
-
-    def local_n(self, x, y):
-        """Determines the normal vector of OE at (x, y) position."""
-        delta_y = self.p * np.cos(self.alpha) - self.ce
-#        delta_z = -self.p*np.sin(self.alpha)
-        a = 0  # -dz/dx
-        b = -self.be * (y+delta_y) /\
-            (np.sqrt(1 - ((y+delta_y)/self.ae)**2) * self.ae**2)  # -dz/dy
-        c = 1.
-        norm = (a**2 + b**2 + 1)**0.5
-        return [a/norm, b/norm, c/norm]
-
-
-class ParabolicMirror(OE):
-    """Implements parabolic mirror. The user supplies the focal distance *p*.
-    if *p*>0, the mirror is collimating, otherwise focusing. The figure is a
-    parabolic cylinder.
-    Deprecated, use ParabolicalMirrorParam instead."""
-
-    cl_plist = ("p", "pp", "delta_y", "delta_z")
-    cl_local_z = """
-    float local_z(float8 cl_plist, int i, float x, float y)
-    {
-      return -sqrt(2*cl_plist.s1*(y+cl_plist.s2))-cl_plist.s3;
-    }"""
-    cl_local_n = """
-    float3 local_n(float8 cl_plist, int i, float x, float y)
-    {
-      float3 res;
-      res.s0 = 0;
-      res.s1 = sign(cl_plist.s0) * sqrt(0.5 * cl_plist.s1 / (y+cl_plist.s2));
-      res.s2 = 1.;
-      return normalize(res);
-    }"""
-
-    def __init__(self, *args, **kwargs):
-        print("ParabolicMirror is deprecated, "
-              "use ParabolicalMirrorParam instead.")
-        kwargs = self.__pop_kwargs(**kwargs)
-        OE.__init__(self, *args, **kwargs)
-        self.get_orientation()
-
-    def __pop_kwargs(self, **kwargs):
-        """ Here 'p' means the distance between the focus and the mirror
-        surface, not the parabola parameter"""
-        self.p = kwargs.pop('p')
-        self.isCylindrical = kwargs.pop('isCylindrical', True)  # always!
-        self.pcorrected = 0
-        return kwargs
-
-    def get_orientation(self):
-        if self.pcorrected and self.pitch0 != self.pitch:
-            self.pcorrected = 0
-        if not self.pcorrected:
-            self.alpha = np.abs(2 * self.pitch)
-            self.pp = self.p * (1-np.cos(self.alpha))
-            print("Parabola paremeter: " + str(self.pp))
-            self.delta_y = 0.5 * self.p * (1+np.cos(self.alpha))
-            self.delta_z = -np.abs(self.p) * np.sin(self.alpha)
-            self.pitch = 2 * self.pitch
-            self.pitch0 = self.pitch
-            self.pcorrected = 1
-
-    def local_z(self, x, y):
-        return -np.sqrt(2 * self.pp * (y+self.delta_y)) - self.delta_z
-
-    def local_n(self, x, y):
-        """Determines the normal vector of OE at (x, y) position."""
-        # delta_y = 0.5*self.p*(1+np.cos(self.alpha))
-        a = 0
-        b = np.sign(self.p) * np.sqrt(0.5 * self.pp / (y+self.delta_y))
-        c = 1.
-        norm = np.sqrt(b**2 + 1)
-        return [a/norm, b/norm, c/norm]
+#class EllipticalMirror(OE):
+#    """Implements cylindrical elliptical mirror.
+#    Deprecated, use EllipticalMirrorParam instead."""
+#
+#    cl_plist = ("p", "alpha", "ae", "be", "ce")
+#    cl_local_z = """
+#    float local_z(float8 cl_plist, int i, float x, float y)
+#    {
+#      float delta_y = cl_plist.s0 * cos(cl_plist.s1) - cl_plist.s4;
+#      float delta_z = -cl_plist.s0 * sin(cl_plist.s1);
+#      return -cl_plist.s3 *
+#          sqrt(1 - (pown(((y+delta_y)/cl_plist.s2),2))) - delta_z;
+#    }"""
+#    cl_local_n = """
+#    float3 local_n(float8 cl_plist, int i, float x, float y)
+#    {
+#      float3 res;
+#      float delta_y = cl_plist.s0 * cos(cl_plist.s1) - cl_plist.s4;
+#      res.s0 = 0;
+#      res.s1 = -cl_plist.s3 * (y+delta_y) /
+#          sqrt(1 - (pown((y+delta_y)/cl_plist.s2,2)) / pown(cl_plist.s2,2));
+#      res.s2 = 1.;
+#      return normalize(res);
+#    }"""
+#
+#    def __init__(self, *args, **kwargs):
+#        """
+#        *p* and *q*: float
+#            *p* and *q* arms of the mirror, both are positive.
+#
+#
+#        """
+#        print("EllipticalMirror is deprecated, "
+#              "use EllipticalMirrorParam instead.")
+#        kwargs = self.__pop_kwargs(**kwargs)
+#        OE.__init__(self, *args, **kwargs)
+#        self.get_orientation()
+#
+#    def __pop_kwargs(self, **kwargs):
+#        self.p = kwargs.pop('p')
+#        self.q = kwargs.pop('q')
+#        self.isCylindrical = kwargs.pop('isCylindrical', True)  # always!
+#        self.pcorrected = 0
+#        return kwargs
+#
+#    def get_orientation(self):
+#        if self.pcorrected and self.pitch0 != self.pitch:
+#            self.pcorrected = 0
+#        if not self.pcorrected:
+#            self.gamma = np.pi - 2*self.pitch
+#            self.ce = 0.5 * np.sqrt(
+#                self.p**2 + self.q**2 - 2*self.p*self.q * np.cos(self.gamma))
+#            self.ae = 0.5 * (self.p+self.q)
+#            self.be = np.sqrt(self.ae*self.ae - self.ce*self.ce)
+#            self.alpha = np.arccos((4 * self.ce**2 - self.q**2 + self.p**2) /
+#                                   (4*self.ce*self.p))
+#            self.delta = 0.5*np.pi - self.alpha - 0.5*self.gamma
+#            self.pitch = self.pitch - self.delta
+#            self.pitch0 = self.pitch
+#            self.pcorrected = 1
+#
+#    def local_z(self, x, y):
+#        delta_y = self.p * np.cos(self.alpha) - self.ce
+#        delta_z = -self.p * np.sin(self.alpha)
+#        return -self.be * np.sqrt(1 - ((y+delta_y)/self.ae)**2) - delta_z
+#
+#    def local_n(self, x, y):
+#        """Determines the normal vector of OE at (x, y) position."""
+#        delta_y = self.p * np.cos(self.alpha) - self.ce
+##        delta_z = -self.p*np.sin(self.alpha)
+#        a = 0  # -dz/dx
+#        b = -self.be * (y+delta_y) /\
+#            (np.sqrt(1 - ((y+delta_y)/self.ae)**2) * self.ae**2)  # -dz/dy
+#        c = 1.
+#        norm = (a**2 + b**2 + 1)**0.5
+#        return [a/norm, b/norm, c/norm]
+#
+#
+#class ParabolicMirror(OE):
+#    """Implements parabolic mirror. The user supplies the focal distance *p*.
+#    if *p*>0, the mirror is collimating, otherwise focusing. The figure is a
+#    parabolic cylinder.
+#    Deprecated, use ParabolicalMirrorParam instead."""
+#
+#    cl_plist = ("p", "pp", "delta_y", "delta_z")
+#    cl_local_z = """
+#    float local_z(float8 cl_plist, int i, float x, float y)
+#    {
+#      return -sqrt(2*cl_plist.s1*(y+cl_plist.s2))-cl_plist.s3;
+#    }"""
+#    cl_local_n = """
+#    float3 local_n(float8 cl_plist, int i, float x, float y)
+#    {
+#      float3 res;
+#      res.s0 = 0;
+#      res.s1 = sign(cl_plist.s0) * sqrt(0.5 * cl_plist.s1 / (y+cl_plist.s2));
+#      res.s2 = 1.;
+#      return normalize(res);
+#    }"""
+#
+#    def __init__(self, *args, **kwargs):
+#        print("ParabolicMirror is deprecated, "
+#              "use ParabolicalMirrorParam instead.")
+#        kwargs = self.__pop_kwargs(**kwargs)
+#        OE.__init__(self, *args, **kwargs)
+#        self.get_orientation()
+#
+#    def __pop_kwargs(self, **kwargs):
+#        """ Here 'p' means the distance between the focus and the mirror
+#        surface, not the parabola parameter"""
+#        self.p = kwargs.pop('p')
+#        self.isCylindrical = kwargs.pop('isCylindrical', True)  # always!
+#        self.pcorrected = 0
+#        return kwargs
+#
+#    def get_orientation(self):
+#        if self.pcorrected and self.pitch0 != self.pitch:
+#            self.pcorrected = 0
+#        if not self.pcorrected:
+#            self.alpha = np.abs(2 * self.pitch)
+#            self.pp = self.p * (1-np.cos(self.alpha))
+#            print("Parabola paremeter: " + str(self.pp))
+#            self.delta_y = 0.5 * self.p * (1+np.cos(self.alpha))
+#            self.delta_z = -np.abs(self.p) * np.sin(self.alpha)
+#            self.pitch = 2 * self.pitch
+#            self.pitch0 = self.pitch
+#            self.pcorrected = 1
+#
+#    def local_z(self, x, y):
+#        return -np.sqrt(2 * self.pp * (y+self.delta_y)) - self.delta_z
+#
+#    def local_n(self, x, y):
+#        """Determines the normal vector of OE at (x, y) position."""
+#        # delta_y = 0.5*self.p*(1+np.cos(self.alpha))
+#        a = 0
+#        b = np.sign(self.p) * np.sqrt(0.5 * self.pp / (y+self.delta_y))
+#        c = 1.
+#        norm = np.sqrt(b**2 + 1)
+#        return [a/norm, b/norm, c/norm]
 
 
 class EllipticalMirrorParam(OE):
@@ -1125,6 +1189,9 @@ class EllipticalMirrorParam(OE):
 
     If *isCylindrical* is True, the figure is an elliptical cylinder, otherwise
     it is an ellipsoid of revolution around the major axis.
+
+    Values of the ellipse's semi-major and semi-minor axes lengths can be
+    accessed after init at *ellipseA* and *ellipseB* respectively.
 
     .. warning::
 
@@ -1171,7 +1238,7 @@ class EllipticalMirrorParam(OE):
         kwargs = self.__pop_kwargs(**kwargs)
         OE.__init__(self, *args, **kwargs)
         self.isParametric = True
-        self.reset_pq(self.p, self.q, self.f1, self.f2, self.pAxis)
+        self._reset_pq() #self.p, self.q, self.f1, self.f2, self.pAxis)
 
     def _to_global(self, lb):
         # if self.extraPitch or self.extraRoll or self.extraYaw:
@@ -1186,47 +1253,104 @@ class EllipticalMirrorParam(OE):
 
     def reset_pqpitch(self, p=None, q=None, pitch=None):
         """Compatibility method. To pass pitch is not needed any longer."""
-        self.reset_pq(p, q)
+        self._reset_pq()
 
     def reset_pq(self, p=None, q=None, f1=None, f2=None, pAxis=None):
+        """Compatibility method. All calculations moved to setters."""
+        self._reset_pq()
+
+    def _reset_pq(self): #, p=None, q=None, f1=None, f2=None, pAxis=None):
         """This method allows re-assignment of *p*, *q*, *pitch*, *f1* and *f2*
         from outside of the constructor.
         """
+        if not all([hasattr(self, v) for v in
+                        ['_p', '_q', '_f1', '_f2', '_pAxis',
+                         '_pitchVal', '_roll', '_yaw',
+                         '_positionRoll', 'rotationSequence']]):
+            return
         lbn = rs.Beam(nrays=1)
         lbn.a[:], lbn.b[:], lbn.c[:] = 0, 0, 1
         self._to_global(lbn)
         normal = lbn.a[0], lbn.b[0], lbn.c[0]
-        if f1 is not None:
-            p = (sum((x-y)**2 for x, y in zip(self.center, f1)))**0.5
-            axis = [c-f for c, f in zip(self.center, f1)]
+
+        if self.f1 is not None:
+            p = (sum((x-y)**2 for x, y in zip(self.center, self.f1)))**0.5
+            axis = [c-f for c, f in zip(self.center, self.f1)]
+            self._p = p
         else:
-            axis = pAxis if pAxis else [0, 1, 0]
+            axis = self.pAxis if self.pAxis else [0, 1, 0]
+
         norm = sum([a**2 for a in axis])**0.5
         sintheta = sum([a*n for a, n in zip(axis, normal)]) / norm
         absPitch = abs(np.arcsin(sintheta))
-        if p is not None:
-            self.p = p
-        if f2 is not None:
-            q = (sum((x-y)**2 for x, y in zip(self.center, f2)))**0.5
-        if q is not None:
-            self.q = q
+
+        if self.f2 is not None:
+            q = (sum((x-y)**2 for x, y in zip(self.center, self.f2)))**0.5
+            self._q = q
+
         # gamma is angle between the major axis and the mirror surface
-        gamma = np.arctan2((self.p - self.q) * np.sin(absPitch),
-                           (self.p + self.q) * np.cos(absPitch))
-        self.cosGamma = np.cos(gamma)
-        self.sinGamma = np.sin(gamma)
-        # (y0, z0) is the ellipse center in local coordinates
-        self.y0 = (self.q - self.p)/2. * np.cos(absPitch)
-        self.z0 = (self.q + self.p)/2. * np.sin(absPitch)
-        self.ellipseA = (self.q + self.p)/2.
-        self.ellipseB = np.sqrt(self.q * self.p) * np.sin(absPitch)
+        if self.p and self.q:
+            gamma = np.arctan2((self.p - self.q) * np.sin(absPitch),
+                               (self.p + self.q) * np.cos(absPitch))
+            self.cosGamma = np.cos(gamma)
+            self.sinGamma = np.sin(gamma)
+            # (y0, z0) is the ellipse center in local coordinates
+            self.y0 = (self.q - self.p)/2. * np.cos(absPitch)
+            self.z0 = (self.q + self.p)/2. * np.sin(absPitch)
+            self.ellipseA = (self.q + self.p)/2.
+            self.ellipseB = np.sqrt(self.q * self.p) * np.sin(absPitch)
+
+    @property
+    def p(self):
+        return self._p
+
+    @p.setter
+    def p(self, p):
+        self._p = p
+        self._reset_pq()
+
+    @property
+    def q(self):
+        return self._q
+
+    @q.setter
+    def q(self, q):
+        self._q = q
+        self._reset_pq()
+
+    @property
+    def f1(self):
+        return self._f1
+
+    @f1.setter
+    def f1(self, f1):
+        self._f1 = f1
+        self._reset_pq()
+
+    @property
+    def f2(self):
+        return self._f2
+
+    @f2.setter
+    def f2(self, f2):
+        self._f2 = f2
+        self._reset_pq()
+
+    @property
+    def pAxis(self):
+        return self._pAxis
+
+    @pAxis.setter
+    def pAxis(self, pAxis):
+        self._pAxis = pAxis
+        self._reset_pq()
 
     def __pop_kwargs(self, **kwargs):
         self.f1 = kwargs.pop('f1', None)
         self.f2 = kwargs.pop('f2', None)
+        self.pAxis = kwargs.pop('pAxis', None)
         self.p = kwargs.pop('p', 1000)  # source-to-mirror
         self.q = kwargs.pop('q', 1000)  # mirror-to-focus
-        self.pAxis = kwargs.pop('pAxis', None)
         self.isCylindrical = kwargs.pop('isCylindrical', False)
         return kwargs
 
@@ -1262,6 +1386,9 @@ class EllipticalMirrorParam(OE):
             c = -np.cos(phi) / norm
         bNew, cNew = raycing.rotate_x(b, c, self.cosGamma, -self.sinGamma)
         return [a, bNew, cNew]
+
+
+EllipticalMirror = EllipticalMirrorParam
 
 
 class ParabolicalMirrorParam(EllipticalMirrorParam):
@@ -1310,32 +1437,53 @@ class ParabolicalMirrorParam(EllipticalMirrorParam):
         kwargs = self.__pop_kwargs(**kwargs)
         OE.__init__(self, *args, **kwargs)
         self.isParametric = True
-        self.reset_pq(self.p, self.q, self.f1, self.f2, self.parabolaAxis)
+#        self.reset_pq(self.p, self.q, self.f1, self.f2, self.parabolaAxis)
+
+    @property
+    def parabolaAxis(self):
+        return self._parabolaAxis
+
+    @parabolaAxis.setter
+    def parabolaAxis(self, parabolaAxis):
+        self._parabolaAxis = parabolaAxis
+        self._reset_pq()
 
     def reset_pq(self, p=None, q=None, f1=None, f2=None, parabolaAxis=None):
+        pass
+
+    def _reset_pq(self): #self, p=None, q=None, f1=None, f2=None, parabolaAxis=None):
         """This method allows re-assignment of *p*, *q* and *pitch* from
         outside of the constructor.
         """
+        if not all([hasattr(self, v) for v in
+                        ['_p', '_q', '_f1', '_f2', '_parabolaAxis',
+                         '_pitch', '_roll', '_yaw',
+                         '_positionRoll', 'rotationSequence']]):
+            return
+
         lbn = rs.Beam(nrays=1)
         lbn.a[:], lbn.b[:], lbn.c[:] = 0, 0, 1
         self._to_global(lbn)
         normal = lbn.a[0], lbn.b[0], lbn.c[0]
-        if f1 is not None:
-            p = (sum((x-y)**2 for x, y in zip(self.center, f1)))**0.5
-            axis = [c-f for c, f in zip(self.center, f1)]
-        elif f2 is not None:
-            q = (sum((x-y)**2 for x, y in zip(self.center, f2)))**0.5
-            axis = [c-f for c, f in zip(self.center, f2)]
+        p = None
+        q = None
+        if self.f1 is not None:
+            p = (sum((x-y)**2 for x, y in zip(self.center, self.f1)))**0.5
+            axis = [c-f for c, f in zip(self.center, self.f1)]
+        elif self.f2 is not None:
+            q = (sum((x-y)**2 for x, y in zip(self.center, self.f2)))**0.5
+            axis = [c-f for c, f in zip(self.center, self.f2)]
         else:
-            axis = parabolaAxis if parabolaAxis else [0, 1, 0]
+            axis = self.parabolaAxis if self.parabolaAxis else [0, 1, 0]
+
         norm = sum([a**2 for a in axis])**0.5
         sintheta = sum([a*n for a, n in zip(axis, normal)]) / norm
         absPitch = abs(np.arcsin(sintheta))
 
         if p is not None:
-            self.p = p
+            self._p = p
         if q is not None:
-            self.q = q
+            self._q = q
         if ((self.p is not None) and (self.q is not None)) or\
                 ((self.p is None) and (self.q is None)):
             print('p={0}, q={1}'.format(self.p, self.q))
@@ -1385,6 +1533,9 @@ class ParabolicalMirrorParam(EllipticalMirrorParam):
             c = -np.cos(phi) / norm
         bNew, cNew = raycing.rotate_x(b, c, self.cosGamma, -self.sinGamma)
         return [a, bNew, cNew]
+
+
+ParabolicMirror = ParabolicalMirrorParam
 
 
 class DCMwithSagittalFocusing(DCM):  # composed by Roelof van Silfhout
@@ -1479,6 +1630,7 @@ class Plate(DCM):
         kwargs = self.__pop_kwargs(**kwargs)
         DCM.__init__(self, *args, **kwargs)
         self.cryst2perpTransl = -self.t
+        self.cryst2pitch = self.wedgeAngle
         if isinstance(self.limPhysX, (list, tuple)):
             self.limPhysX2 = [-x for x in reversed(self.limPhysX)]
         else:
@@ -1489,7 +1641,7 @@ class Plate(DCM):
         else:
             self.limOptX2 = self.limOptX
         self.limOptY2 = self.limOptY
-        self.material2 = self.material
+#        self.material2 = self.material
 #        if self.material is not None:
 #            if raycing.is_sequence(self.material):
 #                materials = self.material
@@ -1500,8 +1652,40 @@ class Plate(DCM):
 #                print('Warning: the material of {0} is not of kind "plate"!'.
 #                      format(self.name))
 
+    @property
+    def t(self):
+        return self._t
+
+    @t.setter
+    def t(self, t):
+        self._t = t
+        self.cryst2perpTransl = -t
+
+    @property
+    def material(self):
+        return self._material
+
+    @material.setter
+    def material(self, material):
+        self._material = material
+        self.material2 = material
+        if hasattr(self, '_nCRLlist'):
+            self.nCRL = self._nCRLlist
+
+
+    @property
+    def wedgeAngle(self):
+        return self._wedgeAngle
+
+    @wedgeAngle.setter
+    def wedgeAngle(self, wedgeAngle):
+        self._wedgeAngle = raycing.auto_units_angle(wedgeAngle)
+        self.cryst2pitch = self._wedgeAngle
+
     def __pop_kwargs(self, **kwargs):
         self.t = kwargs.pop('t', 0)  # difference of z zeros in mm
+        self.wedgeAngle = raycing.auto_units_angle(
+                kwargs.pop('wedgeAngle', 0))
         return kwargs
 
     def assign_auto_material_kind(self, material):
@@ -1525,8 +1709,8 @@ class Plate(DCM):
         """
         if self.bl is not None:
             self.bl.auto_align(self, beam)
-        self.material2 = self.material
-        self.cryst2perpTransl = -self.t
+#        self.material2 = self.material
+#        self.cryst2perpTransl = -self.t
         if self.bl is not None:
             tmpFlowSource = self.bl.flowSource
             if self.bl.flowSource != 'multiple_refract':
@@ -1653,6 +1837,33 @@ class ParaboloidFlatLens(Plate):
         kwargs = self.__pop_kwargs(**kwargs)
         Plate.__init__(self, *args, **kwargs)
 
+    @property
+    def nCRL(self):
+        return self._nCRL
+
+    @nCRL.setter
+    def nCRL(self, nCRL):
+        if isinstance(nCRL, (int, float)):
+            self._nCRL = max(int(round(nCRL)), 1)
+            self._nCRLlist = None
+        elif isinstance(nCRL, (list, tuple)):
+            self._nCRL = max(int(round(self.get_nCRL(*nCRL))), 1)
+            self._nCRLlist = copy.copy(nCRL)
+#            print('nCRL={0}'.format(nCRL))
+        else:
+            self._nCRL = 1
+#            raise ValueError("wrong nCRL value!")
+
+    @property
+    def focus(self):
+        return self._focus
+
+    @focus.setter
+    def focus(self, focus):
+        self._focus = focus
+        if hasattr(self, '_nCRLlist'):
+            self.nCRL = self._nCRLlist
+
     def __pop_kwargs(self, **kwargs):
         self.focus = kwargs.pop('focus', 1.)
         self.zmax = kwargs.pop('zmax', None)
@@ -1695,14 +1906,19 @@ class ParaboloidFlatLens(Plate):
         return self.local_n(x, y)
 
     def get_nCRL(self, f, E):
-        if isinstance(self, DoubleParaboloidLens):
-            nFactor = 0.5
-        elif isinstance(self, ParabolicCylinderFlatLens):
-            nFactor = 2.
-        else:
-            nFactor = 1.
-        return 2 * self.focus / float(f) /\
-            (1. - self.material.get_refractive_index(E).real) * nFactor
+        nCRL = 1
+        if all([hasattr(self, val) for val in ['focus', 'material']]):
+            if self.focus is not None and self.material is not None:
+                if isinstance(self, DoubleParaboloidLens):
+                    nFactor = 0.5
+                elif isinstance(self, ParabolicCylinderFlatLens):
+                    nFactor = 2.
+                else:
+                    nFactor = 1.
+                nCRL = 2 * self.focus / float(f) /\
+                    (1. - self.material.get_refractive_index(E).real) * nFactor
+        return nCRL
+
 
     def multiple_refract(self, beam=None, needLocal=True,
                          returnLocalAbsorbed=None):
@@ -1724,17 +1940,9 @@ class ParaboloidFlatLens(Plate):
         """
         if self.bl is not None:
             self.bl.auto_align(self, beam)
-        if isinstance(self.nCRL, (int, float)):
-            nCRL = self.nCRL
-        elif isinstance(self.nCRL, (list, tuple)):
-            nCRL = self.get_nCRL(self.nCRL[0], self.nCRL[1])
-#            print('nCRL={0}'.format(nCRL))
-        else:
-            raise ValueError("wrong nCRL value!")
-        nCRL = max(int(round(nCRL)), 1)
-        self._nCRL = nCRL
 
-        if nCRL == 1:
+
+        if self.nCRL == 1:
             self.centerShift = np.zeros(3)
             return self.double_refract(beam, needLocal=needLocal,
                                        returnLocalAbsorbed=returnLocalAbsorbed)
@@ -1745,7 +1953,7 @@ class ParaboloidFlatLens(Plate):
             beamIn = beam
             step = 2.*self.zmax + self.t\
                 if isinstance(self, DoubleParaboloidLens) else self.zmax+self.t
-            for ilens in range(nCRL):
+            for ilens in range(self.nCRL):
                 if isinstance(self, ParabolicCylinderFlatLens):
                     self.roll = -np.pi/4 if ilens % 2 == 0 else np.pi/4
                 lglobal, tlocal1, tlocal2 = self.double_refract(
@@ -1958,13 +2166,49 @@ class NormalFZP(OE):
         OE.__init__(self, *args, **kwargs)
         self.use_rays_good_gn = True  # use rays_good_gn instead of rays_good
 
+    @property
+    def f(self):
+        return self._f
+
+    @f.setter
+    def f(self, f):
+        self._f = f
+        self.reset()
+
+    @property
+    def E(self):
+        return self._E
+
+    @E.setter
+    def E(self, E):
+        self._E = E
+        self.reset()
+
+    @property
+    def N(self):
+        return self._N
+
+    @N.setter
+    def N(self, N):
+        self._N = N
+        self.reset()
+
+    @property
+    def thinnestZone(self):
+        return self._thinnestZone
+
+    @thinnestZone.setter
+    def thinnestZone(self, thinnestZone):
+        self._thinnestZone = thinnestZone
+        self.reset()
+
     def __pop_kwargs(self, **kwargs):
         self.f = kwargs.pop('f')
         self.E = kwargs.pop('E')
         self.N = kwargs.pop('N', 1000)
         self.isCentralZoneBlack = kwargs.pop('isCentralZoneBlack', True)
         self.thinnestZone = kwargs.pop('thinnestZone', None)
-        self.reset()
+#        self.reset()
         kwargs['limPhysX'] = [-self.rn[-1], self.rn[-1]]
         kwargs['limPhysY'] = [-self.rn[-1], self.rn[-1]]
         return kwargs
@@ -1973,22 +2217,27 @@ class NormalFZP(OE):
         material.kind = 'FZP'
 
     def reset(self):
-        lambdaE = CH / self.E * 1e-7
-        if self.thinnestZone is not None:
-            self.N = lambdaE * self.f / 4. / self.thinnestZone**2
-        self.zones = np.arange(self.N+1)
-        self.rn = np.sqrt(self.zones*self.f*lambdaE +
-                          0.25*(self.zones*lambdaE)**2)
-        if raycing._VERBOSITY_ > 10:
-            print(self.rn)
-            print(self.f, self.N)
-            print('R(N)={0}, dR(N)={1}'.format(
-                  self.rn[-1], self.rn[-1]-self.rn[-2]))
-        self.r_to_i = interpolate.interp1d(
-            self.rn, self.zones, bounds_error=False, fill_value=0)
-        self.i_to_r = interpolate.interp1d(
-            self.zones, self.rn, bounds_error=False, fill_value=0)
-#        self.drn = self.rn[1:] - self.rn[:-1]
+        if all([hasattr(self, val) for val in ['f', 'E', 'N',
+                                               'thinnestZone']]):
+            lambdaE = CH / self.E * 1e-7
+            if self.thinnestZone is not None:
+                self._N = lambdaE * self.f / 4. / self.thinnestZone**2
+            self.zones = np.arange(self.N+1)
+            self.rn = np.sqrt(self.zones*self.f*lambdaE +
+                              0.25*(self.zones*lambdaE)**2)
+            if raycing._VERBOSITY_ > 10:
+                print(self.rn)
+                print(self.f, self.N)
+                print('R(N)={0}, dR(N)={1}'.format(
+                      self.rn[-1], self.rn[-1]-self.rn[-2]))
+            self.r_to_i = interpolate.interp1d(
+                self.rn, self.zones, bounds_error=False, fill_value=0)
+            self.i_to_r = interpolate.interp1d(
+                self.zones, self.rn, bounds_error=False, fill_value=0)
+            self.limPhysX = [-self.rn[-1], self.rn[-1]]
+            self.limPhysY = [-self.rn[-1], self.rn[-1]]
+
+#            self.drn = self.rn[1:] - self.rn[:-1]
 
     def rays_good_gn(self, x, y, z):
         """Returns *state* value as inherited from :class:`OE`. The rays that
@@ -2052,6 +2301,59 @@ class GeneralFZPin0YZ(OE):
             self.grazingAngle = self.pitch
         self.reset()
 
+    @property
+    def f1(self):
+        return self._f1
+
+    @f1.setter
+    def f1(self, f1):
+        self._f1 = f1
+        self.reset()
+
+    @property
+    def f2(self):
+        return self._f2
+
+    @f2.setter
+    def f2(self, f2):
+        self._f2 = f2
+        self.reset()
+
+    @property
+    def E(self):
+        return self._E
+
+    @E.setter
+    def E(self, E):
+        self._E = E
+        self.reset()
+
+    @property
+    def N(self):
+        return self._N
+
+    @N.setter
+    def N(self, N):
+        self._N = N
+        self.reset()
+
+    @property
+    def phaseShift(self):
+        return self._phaseShift
+
+    @phaseShift.setter
+    def phaseShift(self, phaseShift):
+        self._phaseShift = phaseShift
+        self.reset()
+
+    @property
+    def grazingAngle(self):
+        return self._grazingAngle
+
+    @grazingAngle.setter
+    def grazingAngle(self, grazingAngle):
+        self._grazingAngle = raycing.auto_units_angle(grazingAngle)
+
     def __pop_kwargs(self, **kwargs):
         self.f1 = kwargs.pop('f1')  # in local coordinates!!!
         self.f2 = kwargs.pop('f2')  # in local coordinates!!!
@@ -2059,22 +2361,22 @@ class GeneralFZPin0YZ(OE):
         self.N = kwargs.pop('N', 1000)
         self.phaseShift = kwargs.pop('phaseShift', 0)
         self.vorticity = kwargs.pop('vorticity', 0)
-        self.grazingAngle = raycing.auto_units_angle(
-            kwargs.pop('grazingAngle', None))
+        self.grazingAngle = kwargs.pop('grazingAngle', None)
         return kwargs
 
     def assign_auto_material_kind(self, material):
         material.kind = 'FZP'
 
     def reset(self):
-        self.lambdaE = CH / self.E * 1e-7
-        self.minHalfLambda = None
-        self.set_phase_shift(self.phaseShift)
+        if all([hasattr(self, val) for val in ['E', 'phaseShift']]):
+            self.lambdaE = CH / self.E * 1e-7
+            self.minHalfLambda = None
+            self.set_phase_shift(self.phaseShift)
 
     def set_phase_shift(self, phaseShift):
-        self.phaseShift = phaseShift
+        self._phaseShift = phaseShift
         if self.phaseShift:
-            self.phaseShift /= np.pi
+            self._phaseShift /= np.pi
 
     def rays_good_gn(self, x, y, z):
         locState = super(GeneralFZPin0YZ, self).rays_good(x, y)
@@ -2186,27 +2488,43 @@ class BlazedGrating(OE):
         """
         kwargs = self.__pop_kwargs(**kwargs)
         OE.__init__(self, *args, **kwargs)
-        if self.gratingDensity is not None:
-            self.rho0 = self.gratingDensity[1]
-            self.coeffs = self.gratingDensity[2:]
-            self.ticks = []
-            lim = self.limOptY if self.limOptY is not None else self.limPhysY
-            self.ticksN = int(round(
-                self._get_groove(lim[1]) - self._get_groove(lim[0])))
-            y = lim[0]
-            while y < lim[1]:
-                self.ticks.append(y)
-                y += self._get_period(y)
-            self.ticks = np.array(self.ticks)
-            print("tick len {0}, integrated as {1}".format(
-                len(self.ticks), self.ticksN))
-        self.rho_1 = 1. / self.rho0
+        self.reset()
 
-        self.sinBlaze, self.cosBlaze, self.tanBlaze =\
-            np.sin(self.blaze), np.cos(self.blaze), np.tan(self.blaze)
-        self.sinAntiblaze, self.cosAntiblaze, self.tanAntiblaze =\
-            np.sin(self.antiblaze), np.cos(self.antiblaze),\
-            np.tan(self.antiblaze)
+    @property
+    def rho0(self):
+        return self._rho0
+
+    @rho0.setter
+    def rho0(self, rho0):
+        self._rho0 = rho0
+        self.reset()
+
+    @property
+    def blaze(self):
+        return self._blaze
+
+    @blaze.setter
+    def blaze(self, blaze):
+        self._blaze = blaze
+        self.reset()
+
+    @property
+    def antiblaze(self):
+        return self._antiblaze
+
+    @antiblaze.setter
+    def antiblaze(self, antiblaze):
+        self._antiblaze = antiblaze
+        self.reset()
+
+    @property
+    def gratingDensity(self):
+        return self._gratingDensity
+
+    @gratingDensity.setter
+    def gratingDensity(self, gratingDensity):
+        self._gratingDensity = gratingDensity
+        self.reset()
 
     def __pop_kwargs(self, **kwargs):
         self.blaze = raycing.auto_units_angle(kwargs.pop('blaze'))
@@ -2214,6 +2532,32 @@ class BlazedGrating(OE):
             kwargs.pop('antiblaze', np.pi*0.4999))
         self.rho0 = kwargs.pop('rho', 1)
         return kwargs
+
+    def reset(self):
+        if all([hasattr(self, field) for field in ['rho0', 'gratingDensity',
+                                                   'blaze', 'antiblaze']]):
+            if self.gratingDensity is not None:
+                self.rho0 = self.gratingDensity[1]
+                self.coeffs = self.gratingDensity[2:]
+                self.ticks = []
+                lim = self.limOptY if self.limOptY is not None else self.limPhysY
+                self.ticksN = int(round(
+                    self._get_groove(lim[1]) - self._get_groove(lim[0])))
+                y = lim[0]
+                while y < lim[1]:
+                    self.ticks.append(y)
+                    y += self._get_period(y)
+                self.ticks = np.array(self.ticks)
+                print("tick len {0}, integrated as {1}".format(
+                    len(self.ticks), self.ticksN))
+
+            self.rho_1 = 1. / self.rho0
+    
+            self.sinBlaze, self.cosBlaze, self.tanBlaze =\
+                np.sin(self.blaze), np.cos(self.blaze), np.tan(self.blaze)
+            self.sinAntiblaze, self.cosAntiblaze, self.tanAntiblaze =\
+                np.sin(self.antiblaze), np.cos(self.antiblaze),\
+                np.tan(self.antiblaze)
 
     def _get_period(self, coord):
         poly = 0.
@@ -2331,8 +2675,17 @@ class LaminarGrating(OE):
         """
         kwargs = self.__pop_kwargs(**kwargs)
         OE.__init__(self, *args, **kwargs)
-        self.rho_1 = 1. / self.rho  # Period of the grating in [mm]
+#        self.rho_1 = 1. / self.rho  # Period of the grating in [mm]
         self.illuminatedGroove = 0
+
+    @property
+    def rho0(self):
+        return self._rho0
+
+    @rho0.setter
+    def rho0(self, rho0):
+        self._rho0 = rho0
+        self.rho_1 = 1. / self.rho0
 
     def __pop_kwargs(self, **kwargs):
         self.rho = kwargs.pop('rho')
@@ -2438,6 +2791,8 @@ class VLSLaminarGrating(OE):
         """
         kwargs = self.__pop_kwargs(**kwargs)
         OE.__init__(self, *args, **kwargs)
+
+    def reset(self):
         if self.gratingDensity is not None:
             self.rho0 = self.gratingDensity[1]
             self.coeffs = self.gratingDensity[2:]

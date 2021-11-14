@@ -141,7 +141,7 @@ __author__ = "Konstantin Klementiev, Roman Chernikov"
 __date__ = "26 Mar 2016"
 
 _DEBUG_ = True  # If False, exceptions inside the module are ignored
-_VERBOSITY_ = 10   # [0-100] Regulates the level of diagnostics printout
+_VERBOSITY_ = 100   # [0-100] Regulates the level of diagnostics printout
 
 try:  # for Python 3 compatibility:
     unicode = unicode
@@ -771,6 +771,24 @@ def set_name(elementClass, name):
         elementClass.name = '{0}{1}'.format(elementClass.__class__.__name__,
                                             elementClass.ordinalNum)
 
+def vec_to_quat(vec, alpha):
+    """ Quaternion from vector and angle"""
+    return np.insert(vec*np.sin(alpha*0.5), 0, np.cos(alpha*0.5))
+
+def multiply_quats(qf, qt):
+    """Multiplication of quaternions"""
+    return [qf[0]*qt[0]-qf[1]*qt[1]-qf[2]*qt[2]-qf[3]*qt[3],
+            qf[0]*qt[1]+qf[1]*qt[0]+qf[2]*qt[3]-qf[3]*qt[2],
+            qf[0]*qt[2]-qf[1]*qt[3]+qf[2]*qt[0]+qf[3]*qt[1],
+            qf[0]*qt[3]+qf[1]*qt[2]-qf[2]*qt[1]+qf[3]*qt[0]]
+
+def quat_vec_rotate(vec, q):
+    """Rotate vector by a quaternion"""
+    qn = np.copy(q)
+    qn[1:] *= -1
+    return multiply_quats(multiply_quats(
+        q, vec_to_quat(vec, np.pi*0.25)), qn)[1:]
+
 
 class BeamLine(object):
     u"""
@@ -927,7 +945,7 @@ class BeamLine(object):
             except:
                 print("Automatic Bragg angle calculation failed.")
                 raise
-
+        
         if any(autoCenter) or autoPitch or autoBragg:
             good = (beam.state == 1) | (beam.state == 2)
             if self.flowSource == 'Qook':
@@ -962,6 +980,7 @@ class BeamLine(object):
                 beam.c[0] /= dirNorm
 
         if any(autoCenter):
+            centerList = copy.copy(oe.center)
             bStartC = np.array([inBeam.x[0], inBeam.y[0], inBeam.z[0]])
             bStartDir = np.array([inBeam.a[0], inBeam.b[0], inBeam.c[0]])
 
@@ -976,7 +995,8 @@ class BeamLine(object):
                     if np.linalg.norm(newCenter - bStartC) > 0:
                         break
             for dim in autoCoord:
-                oe.center[dim] = newCenter[dim]
+                centerList[dim] = newCenter[dim]
+            oe.center = centerList
             if _VERBOSITY_ > 0:
                 print(oe.name, "center:", oe.center)
 
