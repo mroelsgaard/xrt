@@ -127,7 +127,7 @@ import os
 import copy
 # import gc
 import numpy as np
-from scipy import interpolate
+from scipy import interpolate, ndimage
 import inspect
 
 from .. import raycing
@@ -140,6 +140,8 @@ try:
     isOpenCL = True
 except ImportError:
     isOpenCL = False
+
+from stl import mesh
 
 __fdir__ = os.path.dirname(__file__)
 
@@ -2907,3 +2909,131 @@ class VLSLaminarGrating(OE):
 
 
 VLSGrating = VLSLaminarGrating
+
+
+class OEfrom3DModel(OE):
+    def __init__(self, *args, **kwargs):
+        """
+        *filename*: str
+            Path to STL file.
+
+        *orientation*: str
+            Sequence of axes to match xrt standard (X right-left,
+            Y forward-backward, Z top-down). Default 'XYZ'.
+
+        *recenter*: bool
+            Parameter defines whether to move local origin to the center of OE
+
+
+        """
+
+        filename = kwargs.pop('filename', None)
+        orientation = kwargs.pop('orientation', 'XYZ')
+        recenter = kwargs.pop('recenter', True)
+        super(OEfrom3DModel, self).__init__(*args, **kwargs)
+
+        self.orientation = orientation
+        self.recenter = recenter
+        self.load_STL(filename)
+
+    def load_STL(self, filename):
+        self.stl_mesh = mesh.Mesh.from_file(filename)
+
+        normals = np.array(self.stl_mesh.normals)
+        faces = self.stl_mesh.data
+        xrt_ax = {'X': 0, 'Y': 1, 'Z': 2}
+        # TODO: catch exception
+
+        z_ax = xrt_ax[self.orientation[2].upper()]
+
+        x_arr = getattr(self.stl_mesh, self.orientation[0].lower())
+        y_arr = getattr(self.stl_mesh, self.orientation[1].lower())
+        z_arr = getattr(self.stl_mesh, self.orientation[2].lower())
+
+        topSurfIndex = np.where(normals[:, z_ax]>0.01)[0]
+
+        z_coordinates = np.array(z_arr[topSurfIndex, 2])  # we take z-coord of the last point in triangle. arbitrary choice
+        izmax = topSurfIndex[np.argmax(z_coordinates)]
+        topSurfIndexArr = [izmax]
+        topSurfCoords = faces[izmax][1].tolist()
+
+        tmptsi = copy.copy(topSurfIndex.tolist())
+        isNrPtsInc = True
+
+        while isNrPtsInc:
+            isNrPtsInc = False
+            for tsi in tmptsi:
+                for point in faces[tsi][1]:
+                    if list(point) in topSurfCoords:
+                        topSurfIndexArr.append(tsi)
+                        topSurfCoords.extend(faces[tsi][1].tolist())
+                        tmptsi.remove(tsi)
+                        isNrPtsInc = True
+                        break
+
+        xs = np.array(x_arr[topSurfIndexArr]).flatten()
+        ys = np.array(y_arr[topSurfIndexArr]).flatten()
+        zs = np.array(z_arr[topSurfIndexArr]).flatten()
+
+        self.limPhysX = np.array([np.min(xs), np.max(xs)])
+        self.limPhysY = np.array([np.min(ys), np.max(ys)])
+
+        if self.recenter:
+            self.dcx = 0.5*(self.limPhysX[-1]+self.limPhysX[0])
+            self.dcy = 0.5*(self.limPhysY[-1]+self.limPhysY[0])
+            xs -= self.dcx
+            ys -= self.dcy
+            self.limPhysX -= self.dcx
+            self.limPhysY -= self.dcy
+            zs -= np.min(zs)
+
+        planeCoords = np.vstack((xs, ys)).T
+
+        uxy, ui = np.unique(planeCoords, axis=0, return_index=True)
+        uz = zs[ui]
+
+        # TODO: catch exception
+        self.z_spline = interpolate.RBFInterpolator(uxy, uz, kernel='cubic')
+#        t0 = time.time()
+        self.gridsizeX = int(10 * (self.limPhysX[-1] - self.limPhysX[0]))
+        self.gridsizeY = int(10 * (self.limPhysY[-1] - self.limPhysY[0]))
+#        print("Calculating normals. Grid size",self.gridsizeX, "x", self.gridsizeY)
+
+        xgrid = np.linspace(self.limPhysX[0], self.limPhysX[-1], self.gridsizeX)
+        ygrid = np.linspace(self.limPhysY[0], self.limPhysY[-1], self.gridsizeY)
+        xmesh, ymesh = np.meshgrid(xgrid, ygrid, indexing='ij')
+
+        xygrid = np.vstack((xmesh.flatten(), ymesh.flatten())).T
+        zgrid = self.z_spline(xygrid).reshape(self.gridsizeX, self.gridsizeY)
+
+        x_grad, y_grad = np.gradient(zgrid)
+
+        self.a_spline = ndimage.spline_filter(x_grad/(xgrid[1]-xgrid[0]))
+        self.b_spline = ndimage.spline_filter(y_grad/(ygrid[1]-ygrid[0]))
+#        print("Done in", time.time()-t0,"s")
+#        from matplotlib import pyplot as plt
+#        from mpl_toolkits import mplot3d
+#        fig = plt.figure()
+#        ax = fig.add_subplot(projection='3d')
+##        ax.quiver(uxy[:, 0], uxy[:, 1], uz, uxn, uyn, uzn, length=1.1, normalize=True)
+#
+##        ax = mplot3d.Axes3D(fig)
+#        ax.scatter(uxy[:, 0], uxy[:, 1], uz)
+#
+#        plt.show()
+
+    def local_z(self, x, y):
+        pnt = np.array((x, y)).T
+        z = self.z_spline(pnt)
+        return z
+
+    def local_n(self, x, y):
+        coords = np.array(
+            [(x-self.limPhysX[0]) /
+             (self.limPhysX[-1]-self.limPhysX[0]) * (self.gridsizeX-1),
+             (y-self.limPhysY[0]) /
+             (self.limPhysY[-1]-self.limPhysY[0]) * (self.gridsizeY-1)])
+        a = ndimage.map_coordinates(self.a_spline, coords, prefilter=True)
+        b = ndimage.map_coordinates(self.b_spline, coords, prefilter=True)
+        norm = np.sqrt(a**2+b**2+1.)
+        return [-a/norm, -b/norm, 1./norm]
